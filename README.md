@@ -9,3 +9,5 @@
 Вариант №5
 
 Упражнение №4
+
+Отчет: http://rpubs.com/ALeX96736/math_model_dz4
