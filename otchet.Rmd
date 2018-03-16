@@ -1,0 +1,152 @@
+---
+title: "Мат. моделирование. Упражнение №4"
+author: "Розумнюк A.A."
+date: '15 марта 2018 г '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### Практика 4
+Линейные регрессионные модели
+
+Модели: множественная линейная регрессия, kNN.
+Данные: 	сгенерированный набор по автомобилям Auto {ISLR}. В наборе 392 наблюдения и 9 показателей:
+
+* mpg – число пройденных автомобилем миль на галлон израсходованного топлива;
+* cylinders – Количество цилиндров от 4 до 8;
+* displacement – Объем двигателя;
+* horsepower – Мощность двигателя;
+* weight – Вес автомобиля;
+* acceleration – Время для разгона от 0 до 60 миль / ч (сек.);
+* year – Год выпуска модели;
+* origin – Происхождение автомобиля (1. Америка, 2. Европа, 3. Япония);
+* name – Название автомобиля;
+
+Цель: исследовать набор данных Auto, построить регрессионную модель, взяв за Y - mpg, а в качестве X: cylinders, displacement, horsepower, weight. сделать вывод о пригодности модели для прогноза. Сравнить с методом k ближайших соседей по MSE на тестовой выборке.
+
+### Пакеты:
+
+```{r}
+library('GGally')       # графики совместного разброса переменных
+library('lmtest')       # тесты остатков регрессионных моделей
+library('FNN')          # алгоритм kNN
+library('ISLR')
+```
+
+Зададим ядро генератора случайных чисел и объём обучающей выборки
+
+```{r}
+my.seed <- 100
+train.percent <- 0.85
+options("ggmatrix.progress.bar" = FALSE)
+```
+
+Отбираем наблюдения в обучающую выборку
+
+```{r}
+set.seed(my.seed)
+Auto$cylinders <- as.factor(Auto$cylinders)
+inTrain <- sample(seq_along(Auto$mpg), 
+                  nrow(Auto) * train.percent)
+df.train <- Auto[inTrain, c(1:5)]
+df.test <- Auto[-inTrain, c(1:5)]
+
+```
+
+### Графики разброса
+```{r}
+# совместный график разброса переменных
+ggp <- ggpairs(df.train)
+print(ggp, progress = F)
+
+# цвета по фактору cylinders
+ggp <- ggpairs(df.train, 
+               mapping = ggplot2::aes(color = cylinders))
+print(ggp, progress = F)
+```
+
+
+### Модели
+
+```{r}
+model.1 <- lm(mpg ~ weight + displacement + horsepower + cylinders,
+              data = df.train)
+summary(model.1)
+```
+
+Некоторые регрессоры, входящие в модель незначимы, постепенно исключаем их:
+
+```{r}
+model.2 <- lm(mpg ~ weight + horsepower + cylinders,
+              data = df.train)
+summary(model.2)
+```
+
+Пропробуем сделать cylinders дискретной количественной переменной:
+
+```{r}
+df.train$cylinders <- as.numeric(df.train$cylinders)
+df.test$cylinders <- as.numeric(df.test$cylinders)
+model.3 <- lm(mpg ~ weight + horsepower + cylinders,
+              data = df.train)
+summary(model.3)
+```
+
+Все параметры модели значимы.
+
+### Проверка остатков
+
+```{r}
+# тест Бройша-Пагана
+bptest(model.3)
+# статистика Дарбина-Уотсона
+dwtest(model.3)
+
+# графики остатков
+par(mar = c(4.5, 4.5, 2, 1))
+par(mfrow = c(1, 3))
+plot(model.3, 1)
+plot(model.3, 4)
+plot(model.3, 5)
+par(mfrow = c(1, 1))
+```
+
+### Сравнение с kNN
+
+```{r}
+# фактические значения y на тестовой выборке
+y.fact <- Auto[-inTrain, 1]
+y.model.lm <- predict(model.3, df.test)
+MSE.lm <- sum((y.model.lm - y.fact)^2) / length(y.model.lm)
+
+# kNN требует на вход только числовые переменные
+df.train.num <- as.data.frame(apply(df.train, 2, as.numeric))
+df.test.num <- as.data.frame(apply(df.test, 2, as.numeric))
+
+for (i in 2:50){
+  model.knn <- knn.reg(train = df.train.num[, !(colnames(df.train.num) %in% 'mpg')], 
+                       y = df.train.num[, 'mpg'], 
+                       test = df.test.num[, -1], k = i)
+  y.model.knn <- model.knn$pred
+  if (i == 2){
+    MSE.knn <- sum((y.model.knn - y.fact)^2) / length(y.model.knn)
+  } else {
+    MSE.knn <- c(MSE.knn, 
+                 sum((y.model.knn - y.fact)^2) / length(y.model.knn))
+  }
+}
+
+# график
+par(mar = c(4.5, 4.5, 1, 1))
+plot(2:50, MSE.knn, type = 'b', col = 'darkgreen',
+     xlab = 'значение k', ylab = 'MSE на тестовой выборке')
+lines(2:50, rep(MSE.lm, 49), lwd = 2, col = grey(0.2), lty = 2)
+legend('bottomright', lty = c(1, 2), pch = c(1, NA), 
+       col = c('darkgreen', grey(0.2)), 
+       legend = c('k ближайших соседа', 'регрессия (все факторы)'), 
+       lwd = rep(2, 2))
+```
+
+Как можно видеть по графику, величина MSE при методе k ближайших соседей становится то больше, то меньше, по сравнению с этим значнеием у линейной регрессии и стабилизируется только при большом значении k. Модель можно использовать для прогноза, относительно низкое значение MSE.
